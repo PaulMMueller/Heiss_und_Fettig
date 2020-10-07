@@ -93,7 +93,7 @@ class Learner():
 
         self.data_set = data_set
         self.labels = labels
-        
+        self.out_list = np.zeros(len(self.labels))
 
             
         self.layer_object_vector = []
@@ -114,8 +114,8 @@ class Learner():
         self.layer_weight_grad = np.zeros_like(self.layer_weights_vector)
         self.layer_bias_grad = np.zeros_like(self.layer_bias_vector)
         
-    def cost_function(self,a_in,real_value):
-        return (a_in-real_value)**2
+    def cost_function(self,a_out,real_value):
+        return (a_out-real_value)**2
     # def get_gradient(self,)
     
     def get_result(self, test_data, test_label):
@@ -126,7 +126,19 @@ class Learner():
             layer_input = layer_output
         return (layer_output,test_label)
     
-    def get_batch_results(self,data):
+    def label_to_out_list(self,label):
+        outcome = self.out_list
+        outcome[self.labels.index(label)] = 1
+        return outcome
+    
+    def learn_batch(self,data):
+        av_cost = 0
+        for (D,L) in data:
+            (out,_) = self.get_result(test_data=D, test_label=L)
+            label_vector = self.label_to_out_list(L)
+            av_cost += self.cost_function(out, label_vector)
+        av_cost /= len(data)
+        return av_cost
         
         
         
