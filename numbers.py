@@ -38,7 +38,7 @@ class Layer():
     def sigmoid(self,val):
         return 1/(1+np.exp(-val))
     def der_sigmoid(self,val):
-        return  (1/(1+np.exp(-val))**2) *(-np.exp(-val)) 
+        return  self.sigmoid(val)*self.sigmoid(-val)
         
     def propagate(self,a_in):
 
@@ -116,6 +116,8 @@ class Learner():
         
     def cost_function(self,a_out,real_value):
         return (a_out-real_value)**2
+    def cost_function_grad(self,a_out,real_value):
+        return 2*(a_out-real_value)
     # def get_gradient(self,)
     
     def get_result(self, test_data, test_label):
@@ -125,13 +127,32 @@ class Learner():
             layer_output = L.propagate(layer_input)
             layer_input = layer_output
         return (layer_output,test_label)
+    def forward_propagate_full_data(self, in_data):
+        """
+        Calculates the prediction of the network however, also returns the all hidden steps. The result is the last entry of vector of outpus
+
+        Parameters
+        ----------
+        in_data : list
+            Input data.
+
+        Returns
+        -------
+        Array of all steps of the propagation: First entry is the input and last the result.
+
+        """
+        layer_inputs = [in_data]
+        for L in self.layer_object_vector:
+            layer_inputs.append(L.propagate(layer_inputs[-1]))
+        return layer_inputs
     
     def label_to_out_list(self,label):
         outcome = self.out_list
         outcome[self.labels.index(label)] = 1
         return outcome
+
     
-    def learn_batch(self,data):
+    def av_cost_of_batch(self,data):
         av_cost = 0
         for (D,L) in data:
             (out,_) = self.get_result(test_data=D, test_label=L)
@@ -142,7 +163,27 @@ class Learner():
         
         
         
-        return
+    def calculate_gradient(self,in_data,label):
+        layers_weight_grad_example = np.zeros_like(self.layer_weights_vector)
+        layers_bias_grad_example = np.zeros_like(self.layer_bias_vector)
+        
+        label_vec = self.label_to_out_list(label)
+        layer_outputs = self.forward_propagate_full_data(in_data)
+        
+        first_cost_grad = self.cost_function_grad(layer_outputs[-1], label_vec)
+
+        temp_a_grad = 1
+        for (layer,layer_input) in zip(self.layer_object_vector[::-1],layer_outputs[:-1:-1]):
+            a_out_dev,weight_dev,bias_dev = layer.get_derivatives(temp_a_grad,layer_input)
+            
+            
+            
+            temp_a_grad = a_out_dev
+
+            
+        
+
+        return (layers_weight_grad_example, layers_bias_grad_example)
     def print_network_properties(self):
         print('\nGiving the layer structure where every layer has as many outputs as the next has inputs.\n')
         for i, obj in enumerate(self.layer_structure[:-1]):
@@ -166,7 +207,7 @@ for i in range(length):
     data_set.append((in_data,label))
 
 DL = Learner(layer_structure=(2,4), data_set=data_set,labels=possible_labels)
-
+len(DL.layer_object_vector)
 DL.print_network_properties()  
 
 print( DL.get_result((1,2),1))
