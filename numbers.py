@@ -9,7 +9,7 @@ Lerning Numbers
 """
 
 import numpy as np
-
+from  mlxtend.data import loadlocal_mnist
 
 class Layer():
     
@@ -34,11 +34,12 @@ class Layer():
         self.weight_matrix = np.random.rand(self.N_out,self.N_in)
         self.bias_vector = np.random.rand(self.N_out)
         self.a_out = None
+        self.width = N_in*0.25+0.5
         
     def sigmoid(self,val):
-        return 1/(1+np.exp(-val))
+        return 1/(1+np.exp(-val/self.width))
     def der_sigmoid(self,val):
-        return  self.sigmoid(val)*self.sigmoid(-val)
+        return  (1/self.width) * self.sigmoid(val/self.width)*self.sigmoid(-val/self.width)
         
     def propagate(self,a_in):
 
@@ -46,16 +47,20 @@ class Layer():
         
         
         return self.a_out
-    def get_derivatives(self,a_in):
-        bias_dev = self.der_sigmoid(np.ones(self.N_out))
-        weight_dev = self.der_sigmoid(np.tile(a_in,(self.N_out,1)))
-        a_out_dev = self.der_sigmoid(np.sum(self.weight_matrix,axis=1))
-        return (a_out_dev,weight_dev,bias_dev)
+    def get_derivatives(self,a_in,pre_grad):
+       
+        grad_z = self.der_sigmoid(np.matmul(self.weight_matrix,a_in)+self.bias_vector)
+        pre_grad_times_grad_z = pre_grad*grad_z
+        bias_dev = pre_grad_times_grad_z*np.ones(self.N_out)
+
+        weight_dev = np.outer(pre_grad_times_grad_z,a_in)
+
+        a_in_dev = np.matmul((pre_grad_times_grad_z),(self.weight_matrix))
+        return (a_in_dev,weight_dev,bias_dev)
     
     
     
     
-# bsp = np.array([0,0.5,1])
 
 # start_l = Layer(3,2)
 # next_l = Layer(start_l.N_out,4)
@@ -65,7 +70,7 @@ class Layer():
 # print(start_l.get_derivatives(bsp))
 
 class Learner():    
-    def __init__(self,layer_structure,data_set,labels,learn_ratio= 0.8, batch_size=100):
+    def __init__(self,layer_structure,data_set,labels,learn_ratio= 1, batch_size=None):
         """
         
 
@@ -78,9 +83,9 @@ class Learner():
         labels : list
             All possible labels
         learn_ratio : float, optional
-            Which part of the data is used for training and which for testing. The default is 0.8.
+            How much of gradient should flow into the change of the weights and biases. The default is 1.
         batch_size : TYPE, optional
-            Size of batches before adjusting the weights and biases. The default is 100.
+            Size of batches before adjusting the weights and biases. The default is len(data_set).
 
 
 
@@ -94,7 +99,12 @@ class Learner():
         self.data_set = data_set
         self.labels = labels
         self.out_list = np.zeros(len(self.labels))
-
+        
+        self.learn_ratio = learn_ratio
+        if batch_size == None:
+            self.batch_size =  len(data_set)
+        else:
+            self.batch_size =  batch_size
             
         self.layer_object_vector = []
         self.layer_weights_vector = []
@@ -106,16 +116,16 @@ class Learner():
             self.layer_weights_vector.append(layer_object.weight_matrix)
             self.layer_bias_vector.append(layer_object.bias_vector)
          
-        self.layer_object_vector = np.array(self.layer_object_vector)
-        self.layer_weights_vector = np.array(self.layer_weights_vector)
+        self.layer_object_vector = np.array(self.layer_object_vector,dtype=object)
+        self.layer_weights_vector = np.array(self.layer_weights_vector,dtype=object)
         
-        self.layer_bias_vector = np.array(self.layer_bias_vector)
+        self.layer_bias_vector = np.array(self.layer_bias_vector,dtype=object)
         
         self.layer_weight_grad = np.zeros_like(self.layer_weights_vector)
         self.layer_bias_grad = np.zeros_like(self.layer_bias_vector)
         
     def cost_function(self,a_out,real_value):
-        return (a_out-real_value)**2
+        return np.matmul((a_out-real_value),(a_out-real_value))
     def cost_function_grad(self,a_out,real_value):
         return 2*(a_out-real_value)
     # def get_gradient(self,)
@@ -147,7 +157,7 @@ class Learner():
         return layer_inputs
     
     def label_to_out_list(self,label):
-        outcome = self.out_list
+        outcome = np.copy(self.out_list)
         outcome[self.labels.index(label)] = 1
         return outcome
 
@@ -164,26 +174,65 @@ class Learner():
         
         
     def calculate_gradient(self,in_data,label):
+
         layers_weight_grad_example = np.zeros_like(self.layer_weights_vector)
         layers_bias_grad_example = np.zeros_like(self.layer_bias_vector)
-        
+
         label_vec = self.label_to_out_list(label)
         layer_outputs = self.forward_propagate_full_data(in_data)
         
         first_cost_grad = self.cost_function_grad(layer_outputs[-1], label_vec)
 
-        temp_a_grad = 1
-        for (layer,layer_input) in zip(self.layer_object_vector[::-1],layer_outputs[:-1:-1]):
-            a_out_dev,weight_dev,bias_dev = layer.get_derivatives(temp_a_grad,layer_input)
-            
-            
-            
-            temp_a_grad = a_out_dev
+        temp_a_grad = first_cost_grad 
 
+        for i,(layer,layer_input) in enumerate(zip(self.layer_object_vector[::-1],(layer_outputs[:-1])[::-1])):
+
+            a_out_dev,weight_dev,bias_dev = layer.get_derivatives(layer_input,temp_a_grad)
+            # temp_a_grad *=a_out_dev
+
+            temp_a_grad = a_out_dev
+            layers_weight_grad_example[len(layers_weight_grad_example)-i-1] = weight_dev
+            layers_bias_grad_example[len(layers_bias_grad_example)-i-1] = bias_dev
             
         
 
         return (layers_weight_grad_example, layers_bias_grad_example)
+    
+    def learn_from_batch(self,batch):
+        av_weight_adjust, av_bias_adjust =  self.calculate_gradient(batch[0][0],batch[0][1])
+        loss = self.av_cost_of_batch(batch)
+        for dat in batch[1:]:
+            in_data = dat[0]
+            label = dat[1]
+            
+            weight_adjust, bias_adjust = self.calculate_gradient(in_data, label)
+            av_bias_adjust += bias_adjust
+            av_weight_adjust += weight_adjust
+        av_bias_adjust = self.learn_ratio*av_bias_adjust/len(batch)    
+        av_weight_adjust = self.learn_ratio*av_weight_adjust/len(batch)    
+        
+        for  (w,b,layer) in (zip(av_weight_adjust,av_bias_adjust,self.layer_object_vector)):
+            
+            layer.weight_matrix -=w
+            
+            layer.bias_vector -=b
+        
+        return loss
+       
+    def learn(self,epochs):
+        for i  in range(1,epochs+1):
+            print(f'Epoch: {i}/{epochs}')
+            for j  in range(int(len(data_set)/(self.batch_size))): 
+                try:
+                    batch =  self.data_set[j*self.batch_size:self.batch_size*(j+1)]
+                    print(batch)
+                except IndexError:
+                    print('Some data not used as batch size sucks.')
+                loss = self.learn_from_batch(batch)
+                print(f'Batch : {j+1}/{int(len(data_set)/(self.batch_size))},  Loss: {loss}') 
+                
+                
+      
     def print_network_properties(self):
         print('\nGiving the layer structure where every layer has as many outputs as the next has inputs.\n')
         for i, obj in enumerate(self.layer_structure[:-1]):
@@ -197,17 +246,32 @@ class Learner():
  
     
 # Make a test data set
-length = 1000
-data_set = []
-possible_labels = range(0,4)
-j = 0
-for i in range(length):
-    in_data = ((i%4)/4,0)
-    label = i%4
-    data_set.append((in_data,label))
+# length = 1000
+# data_set = []
+# possible_labels = range(0,4)
+# j = 0
+# for i in range(length):
+#     in_data = ((i%4)/4,0)
+#     label = i%4
+#     data_set.append((in_data,label))
 
-DL = Learner(layer_structure=(2,4), data_set=data_set,labels=possible_labels)
-len(DL.layer_object_vector)
-DL.print_network_properties()  
+dat , label  =  loadlocal_mnist(images_path="/home/paul/Learning/train-images-idx3-ubyte", labels_path= "/home/paul/Learning/train-labels-idx1-ubyte")
+dat = dat/256
+data_set = (dat,label)
 
-print( DL.get_result((1,2),1))
+possible_labels = np.arange(0,10)
+
+DL = Learner(layer_structure=(len(data_set[0][0]),16,16,len(possible_labels)), data_set=data_set,labels=possible_labels,learn_ratio=10,batch_size=1000)
+#len(DL.layer_object_vector)
+# DL.print_network_properties()  
+
+# grad_w, grad_b = DL.calculate_gradient((1,0), 3)
+
+# # print(DL.calculate_gradient((1,0), 3))
+# print(DL.out_list)
+DL.print_network_properties()
+DL.learn(5)
+print(DL.data_set)
+# print(DL.get_result((1,0),3))
+# print(DL.label_to_out_list(3))
+# # print( DL.get_result((1,2),1))
